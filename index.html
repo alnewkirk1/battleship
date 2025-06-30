@@ -1072,11 +1072,11 @@
             }
         }
 
+        // Initialize game immediately
+        window.game = new BattleshipGame();
+
         // Global functions for UI
         function createGame() {
-            if (!window.game) {
-                window.game = new BattleshipGame();
-            }
             window.game.createGame();
         }
 
@@ -1086,16 +1086,10 @@
         }
 
         function joinGame() {
-            if (!window.game) {
-                window.game = new BattleshipGame();
-            }
             window.game.joinGame();
         }
 
         function playLocal() {
-            if (!window.game) {
-                window.game = new BattleshipGame();
-            }
             window.game.playLocal();
         }
 
@@ -1115,8 +1109,3 @@
         function newGame() {
             window.game.newGame();
         }
-
-        // Initialize
-        window.addEventListener('load', () => {
-            window.game = new BattleshipGame();
-        });
