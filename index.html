@@ -290,6 +290,54 @@
             }
         }
     </style>
+    <script>
+        // Define global functions immediately
+        function createGame() {
+            if (window.game) {
+                window.game.createGame();
+            }
+        }
+
+        function showJoinGame() {
+            document.getElementById('setupScreen').style.display = 'none';
+            document.getElementById('joinScreen').style.display = 'block';
+        }
+
+        function joinGame() {
+            if (window.game) {
+                window.game.joinGame();
+            }
+        }
+
+        function playLocal() {
+            if (window.game) {
+                window.game.playLocal();
+            }
+        }
+
+        function backToSetup() {
+            document.getElementById('joinScreen').style.display = 'none';
+            document.getElementById('setupScreen').style.display = 'block';
+        }
+
+        function processEnemyAttack() {
+            if (window.game) {
+                window.game.processEnemyAttack();
+            }
+        }
+
+        function closeAttackModal() {
+            if (window.game) {
+                window.game.closeAttackModal();
+            }
+        }
+
+        function newGame() {
+            if (window.game) {
+                window.game.newGame();
+            }
+        }
+    </script>
 </head>
 <body>
     <div class="game-container">
