@@ -293,9 +293,12 @@
     <script>
         // Define global functions immediately
         function createGame() {
-            if (window.game) {
-                window.game.createGame();
+            console.log('createGame called');
+            if (!window.game) {
+                console.log('Creating new game instance');
+                window.game = new BattleshipGame();
             }
+            window.game.createGame();
         }
 
         function showJoinGame() {
@@ -304,15 +307,17 @@
         }
 
         function joinGame() {
-            if (window.game) {
-                window.game.joinGame();
+            if (!window.game) {
+                window.game = new BattleshipGame();
             }
+            window.game.joinGame();
         }
 
         function playLocal() {
-            if (window.game) {
-                window.game.playLocal();
+            if (!window.game) {
+                window.game = new BattleshipGame();
             }
+            window.game.playLocal();
         }
 
         function backToSetup() {
