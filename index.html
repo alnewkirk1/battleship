@@ -1,4 +1,786 @@
-<!DOCTYPE html>
+</style>
+    <script>
+        class BattleshipGame {
+            constructor() {
+                this.gameMode = 'local'; // local, remote-host, remote-join
+                this.gameCode = '';
+                this.gamePhase = 'placement'; // placement, battle, gameover
+                this.currentPlayer = 1;
+                this.isMyTurn = true;
+                
+                // Ship placement
+                this.isHorizontal = true;
+                this.selectedShip = 'carrier';
+                this.selectedShipSize = 5;
+                this.ships = {
+                    carrier: { size: 5, placed: false },
+                    battleship: { size: 4, placed: false },
+                    cruiser: { size: 3, placed: false },
+                    submarine: { size: 3, placed: false },
+                    destroyer: { size: 2, placed: false }
+                };
+                
+                this.player1Board = this.createBoard();
+                this.player2Board = this.createBoard();
+                this.player1Ships = {};
+                this.player2Ships = {};
+                this.player1Hits = [];
+                this.player2Hits = [];
+                
+                // Delay initialization until DOM is ready
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', () => this.initializeUI());
+                } else {
+                    this.initializeUI();
+                }
+            }
+
+            createBoard() {
+                return Array(10).fill().map(() => Array(10).fill(0));
+            }
+
+            generateGameCode() {
+                const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+                let result = '';
+                for (let i = 0; i < 6; i++) {
+                    result += chars.charAt(Math.floor(Math.random() * chars.length));
+                }
+                return result;
+            }
+
+            initializeUI() {
+                this.createGrid('playerGrid');
+                this.createGrid('enemyGrid');
+                this.bindEvents();
+            }
+
+            createGrid(gridId) {
+                const grid = document.getElementById(gridId);
+                if (!grid) return; // Grid not ready yet
+                grid.innerHTML = '';
+                
+                for (let i = 0; i < 100; i++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.row = Math.floor(i / 10);
+                    cell.dataset.col = i % 10;
+                    grid.appendChild(cell);
+                }
+            }
+
+            bindEvents() {
+                // Ship selection
+                document.querySelectorAll('.ship-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        if (btn.disabled) return;
+                        document.querySelectorAll('.ship-btn').forEach(b => b.classList.remove('selected'));
+                        btn.classList.add('selected');
+                        this.selectedShip = btn.dataset.ship;
+                        this.selectedShipSize = parseInt(btn.dataset.size);
+                    });
+                });
+
+                // Controls
+                const rotateBtn = document.getElementById('rotateBtn');
+                if (rotateBtn) {
+                    rotateBtn.addEventListener('click', () => {
+                        this.isHorizontal = !this.isHorizontal;
+                        this.updateStatus(`Ship orientation: ${this.isHorizontal ? 'Horizontal' : 'Vertical'}`);
+                    });
+                }
+
+                const randomBtn = document.getElementById('randomBtn');
+                if (randomBtn) {
+                    randomBtn.addEventListener('click', () => {
+                        this.randomPlacement();
+                    });
+                }
+
+                const clearBtn = document.getElementById('clearBtn');
+                if (clearBtn) {
+                    clearBtn.addEventListener('click', () => {
+                        this.clearBoard();
+                    });
+                }
+
+                const readyBtn = document.getElementById('readyBtn');
+                if (readyBtn) {
+                    readyBtn.addEventListener('click', () => {
+                        this.startBattle();
+                    });
+                }
+
+                const processEnemyBtn = document.getElementById('processEnemyBtn');
+                if (processEnemyBtn) {
+                    processEnemyBtn.addEventListener('click', () => {
+                        this.showAttackModal();
+                    });
+                }
+
+                // Grid clicks
+                const playerGrid = document.getElementById('playerGrid');
+                if (playerGrid) {
+                    playerGrid.addEventListener('click', (e) => {
+                        if (e.target.classList.contains('cell') && this.gamePhase === 'placement') {
+                            this.handleShipPlacement(e.target);
+                        }
+                    });
+                }
+
+                const enemyGrid = document.getElementById('enemyGrid');
+                if (enemyGrid) {
+                    enemyGrid.addEventListener('click', (e) => {
+                        if (e.target.classList.contains('cell') && this.gamePhase === 'battle' && this.isMyTurn) {
+                            this.handleAttack(e.target);
+                        }
+                    });
+                }
+
+                // Attack input
+                const enemyAttackInput = document.getElementById('enemyAttackInput');
+                if (enemyAttackInput) {
+                    enemyAttackInput.addEventListener('keypress', (e) => {
+                        if (e.key === 'Enter') this.processEnemyAttack();
+                    });
+                }
+            }
+
+            createGame() {
+                console.log('BattleshipGame.createGame() called');
+                this.gameMode = 'remote-host';
+                this.gameCode = this.generateGameCode();
+                this.showGameScreen();
+                
+                const gameInfo = document.getElementById('gameInfo');
+                if (gameInfo) gameInfo.style.display = 'block';
+                
+                const syncInfo = document.getElementById('syncInfo');
+                if (syncInfo) syncInfo.style.display = 'block';
+                
+                const displayGameCode = document.getElementById('displayGameCode');
+                if (displayGameCode) displayGameCode.textContent = this.gameCode;
+                
+                this.updateStatus('Share your room code with your opponent! Place your ships while waiting.');
+                this.updateGamePhase();
+            }
+
+            joinGame() {
+                const gameCode = document.getElementById('gameCodeInput').value.trim().toUpperCase();
+                if (!gameCode || gameCode.length !== 6) {
+                    alert('Please enter a valid 6-character room code');
+                    return;
+                }
+
+                this.gameMode = 'remote-join';
+                this.gameCode = gameCode;
+                this.showGameScreen();
+                
+                const gameInfo = document.getElementById('gameInfo');
+                if (gameInfo) gameInfo.style.display = 'block';
+                
+                const syncInfo = document.getElementById('syncInfo');
+                if (syncInfo) syncInfo.style.display = 'block';
+                
+                const displayGameCode = document.getElementById('displayGameCode');
+                if (displayGameCode) displayGameCode.textContent = this.gameCode;
+                
+                this.updateStatus('Connected! Place your ships and coordinate with your opponent.');
+                this.updateGamePhase();
+            }
+
+            playLocal() {
+                this.gameMode = 'local';
+                this.showGameScreen();
+                this.updateStatus('Player 1: Place your ships!');
+                this.updateGamePhase();
+            }
+
+            showGameScreen() {
+                const setupScreen = document.getElementById('setupScreen');
+                if (setupScreen) setupScreen.style.display = 'none';
+                
+                const joinScreen = document.getElementById('joinScreen');
+                if (joinScreen) joinScreen.style.display = 'none';
+                
+                const gameScreen = document.getElementById('gameScreen');
+                if (gameScreen) gameScreen.style.display = 'block';
+            }
+
+            handleShipPlacement(cell) {
+                const row = parseInt(cell.dataset.row);
+                const col = parseInt(cell.dataset.col);
+                
+                if (this.ships[this.selectedShip].placed) {
+                    this.updateStatus('This ship is already placed! Select another ship.');
+                    return;
+                }
+
+                if (this.canPlaceShip(row, col, this.selectedShipSize, this.isHorizontal)) {
+                    this.placeShip(row, col, this.selectedShipSize, this.isHorizontal);
+                    this.ships[this.selectedShip].placed = true;
+                    this.updateShipButton();
+                    this.checkAllShipsPlaced();
+                } else {
+                    this.updateStatus('Cannot place ship here! Try another location.');
+                }
+            }
+
+            canPlaceShip(row, col, size, horizontal) {
+                const board = this.currentPlayer === 1 ? this.player1Board : this.player2Board;
+                
+                for (let i = 0; i < size; i++) {
+                    const newRow = horizontal ? row : row + i;
+                    const newCol = horizontal ? col + i : col;
+                    
+                    if (newRow >= 10 || newCol >= 10 || board[newRow][newCol] !== 0) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            placeShip(row, col, size, horizontal) {
+                const board = this.currentPlayer === 1 ? this.player1Board : this.player2Board;
+                const ships = this.currentPlayer === 1 ? this.player1Ships : this.player2Ships;
+                
+                const shipCells = [];
+                for (let i = 0; i < size; i++) {
+                    const newRow = horizontal ? row : row + i;
+                    const newCol = horizontal ? col + i : col;
+                    board[newRow][newCol] = 1;
+                    shipCells.push([newRow, newCol]);
+                }
+                
+                ships[this.selectedShip] = shipCells;
+                this.updatePlayerGrid();
+                this.updateStatus(`${this.selectedShip} placed successfully!`);
+            }
+
+            updatePlayerGrid() {
+                const board = this.currentPlayer === 1 ? this.player1Board : this.player2Board;
+                const cells = document.querySelectorAll('#playerGrid .cell');
+                
+                cells.forEach(cell => {
+                    const row = parseInt(cell.dataset.row);
+                    const col = parseInt(cell.dataset.col);
+                    
+                    cell.className = 'cell';
+                    if (board[row][col] === 1) {
+                        cell.classList.add('ship');
+                    }
+                    
+                    // Show enemy hits on my board
+                    const enemyHits = this.currentPlayer === 1 ? this.player2Hits : this.player1Hits;
+                    enemyHits.forEach(hit => {
+                        if (hit.row === row && hit.col === col) {
+                            if (board[row][col] === 1) {
+                                cell.classList.add('hit');
+                                cell.textContent = '💥';
+                            } else {
+                                cell.classList.add('miss');
+                                cell.textContent = '💦';
+                            }
+                        }
+                    });
+                });
+            }
+
+            updateShipButton() {
+                const btn = document.querySelector(`[data-ship="${this.selectedShip}"]`);
+                if (btn) {
+                    btn.disabled = true;
+                    btn.textContent += ' ✓';
+                }
+                
+                // Select next available ship
+                const availableShips = Object.keys(this.ships).find(ship => !this.ships[ship].placed);
+                if (availableShips) {
+                    const nextBtn = document.querySelector(`[data-ship="${availableShips}"]`);
+                    if (nextBtn) {
+                        document.querySelectorAll('.ship-btn').forEach(b => b.classList.remove('selected'));
+                        nextBtn.classList.add('selected');
+                        this.selectedShip = availableShips;
+                        this.selectedShipSize = this.ships[availableShips].size;
+                    }
+                }
+            }
+
+            checkAllShipsPlaced() {
+                const allPlaced = Object.values(this.ships).every(ship => ship.placed);
+                if (allPlaced) {
+                    const readyBtn = document.getElementById('readyBtn');
+                    if (readyBtn) readyBtn.style.display = 'block';
+                    
+                    if (this.gameMode === 'local') {
+                        this.updateStatus('All ships placed! Click "Ready for Battle!" to continue.');
+                    } else {
+                        this.updateStatus('All ships placed! Click "Ready for Battle!" when both players are ready.');
+                    }
+                }
+            }
+
+            clearBoard() {
+                if (this.currentPlayer === 1) {
+                    this.player1Board = this.createBoard();
+                    this.player1Ships = {};
+                } else {
+                    this.player2Board = this.createBoard();
+                    this.player2Ships = {};
+                }
+                
+                this.resetShips();
+                this.updatePlayerGrid();
+                this.updateStatus('Board cleared! Place your ships again.');
+            }
+
+            resetShips() {
+                this.ships = {
+                    carrier: { size: 5, placed: false },
+                    battleship: { size: 4, placed: false },
+                    cruiser: { size: 3, placed: false },
+                    submarine: { size: 3, placed: false },
+                    destroyer: { size: 2, placed: false }
+                };
+                
+                document.querySelectorAll('.ship-btn').forEach(btn => {
+                    btn.disabled = false;
+                    btn.classList.remove('selected');
+                    btn.textContent = btn.textContent.replace(' ✓', '');
+                });
+                
+                const carrierBtn = document.querySelector('[data-ship="carrier"]');
+                if (carrierBtn) {
+                    carrierBtn.classList.add('selected');
+                    this.selectedShip = 'carrier';
+                    this.selectedShipSize = 5;
+                }
+            }
+
+            randomPlacement() {
+                this.clearBoard();
+                
+                Object.keys(this.ships).forEach(shipType => {
+                    const size = this.ships[shipType].size;
+                    let placed = false;
+                    let attempts = 0;
+                    
+                    while (!placed && attempts < 100) {
+                        const row = Math.floor(Math.random() * 10);
+                        const col = Math.floor(Math.random() * 10);
+                        const horizontal = Math.random() < 0.5;
+                        
+                        if (this.canPlaceShip(row, col, size, horizontal)) {
+                            this.selectedShip = shipType;
+                            this.selectedShipSize = size;
+                            this.placeShip(row, col, size, horizontal);
+                            this.ships[shipType].placed = true;
+                            placed = true;
+                        }
+                        attempts++;
+                    }
+                });
+                
+                document.querySelectorAll('.ship-btn').forEach(btn => {
+                    btn.disabled = true;
+                    btn.textContent += ' ✓';
+                });
+                
+                const readyBtn = document.getElementById('readyBtn');
+                if (readyBtn) readyBtn.style.display = 'block';
+                this.updateStatus('All ships randomly placed! Click "Ready for Battle!" when ready.');
+            }
+
+            startBattle() {
+                if (this.gameMode === 'local') {
+                    // Check if both players have placed ships
+                    if (this.currentPlayer === 1) {
+                        // Switch to player 2
+                        this.currentPlayer = 2;
+                        this.resetShips();
+                        this.clearBoard();
+                        this.updateStatus('Player 2: Place your ships!');
+                        this.updateGamePhase();
+                        const readyBtn = document.getElementById('readyBtn');
+                        if (readyBtn) readyBtn.style.display = 'none';
+                        return;
+                    }
+                }
+                
+                // Start battle phase
+                this.gamePhase = 'battle';
+                this.currentPlayer = 1;
+                this.isMyTurn = true;
+                
+                const shipSelection = document.getElementById('shipSelection');
+                if (shipSelection) shipSelection.style.display = 'none';
+                
+                const placementControls = document.getElementById('placementControls');
+                if (placementControls) placementControls.style.display = 'none';
+                
+                const enemySection = document.getElementById('enemySection');
+                if (enemySection) enemySection.style.display = 'block';
+                
+                if (this.gameMode !== 'local') {
+                    const battleControls = document.getElementById('battleControls');
+                    if (battleControls) battleControls.style.display = 'block';
+                    
+                    const turnIndicator = document.getElementById('turnIndicator');
+                    if (turnIndicator) turnIndicator.style.display = 'block';
+                }
+                
+                this.updatePlayerGrid();
+                this.updateGamePhase();
+                this.updateTurnDisplay();
+                
+                if (this.gameMode === 'local') {
+                    this.updateStatus('Player 1: Click on the enemy grid to attack!');
+                } else {
+                    this.updateStatus('Battle begins! Coordinate with your opponent to determine who goes first.');
+                }
+            }
+
+            handleAttack(cell) {
+                const row = parseInt(cell.dataset.row);
+                const col = parseInt(cell.dataset.col);
+                
+                if (cell.classList.contains('hit') || cell.classList.contains('miss')) {
+                    this.updateStatus('You already attacked this position!');
+                    return;
+                }
+                
+                let enemyBoard, enemyShips, myHits;
+                
+                if (this.gameMode === 'local') {
+                    enemyBoard = this.currentPlayer === 1 ? this.player2Board : this.player1Board;
+                    enemyShips = this.currentPlayer === 1 ? this.player2Ships : this.player1Ships;
+                    myHits = this.currentPlayer === 1 ? this.player1Hits : this.player2Hits;
+                } else {
+                    // For remote games, assume we're attacking player 2's board
+                    enemyBoard = this.player2Board;
+                    enemyShips = this.player2Ships;
+                    myHits = this.player1Hits;
+                }
+                
+                const isHit = enemyBoard && enemyBoard[row][col] === 1;
+                const attackResult = { row, col, hit: isHit };
+                myHits.push(attackResult);
+                
+                if (isHit) {
+                    cell.classList.add('hit');
+                    cell.textContent = '💥';
+                    
+                    const coord = this.rowColToCoord(row, col);
+                    
+                    if (this.gameMode === 'local') {
+                        // Check if ship is sunk
+                        const sunkShip = this.checkIfShipSunk(row, col, enemyShips, myHits);
+                        if (sunkShip) {
+                            this.markShipAsSunk(sunkShip, enemyShips);
+                            this.updateStatus(`Hit! ${sunkShip} sunk!`);
+                            
+                            // Check for victory
+                            if (this.checkVictory(enemyShips, myHits)) {
+                                this.gamePhase = 'gameover';
+                                this.updateGamePhase();
+                                this.updateStatus(`🎉 Player ${this.currentPlayer} wins! 🎉`);
+                                return;
+                            }
+                        } else {
+                            this.updateStatus('Hit! Take another shot!');
+                        }
+                        // Don't switch turns on hit in local mode
+                    } else {
+                        this.updateStatus(`You attacked ${coord} - Tell opponent: HIT! 💥 Take another shot!`);
+                        // Don't switch turns on hit
+                    }
+                } else {
+                    cell.classList.add('miss');
+                    cell.textContent = '💦';
+                    
+                    if (this.gameMode === 'local') {
+                        this.switchPlayer();
+                    } else {
+                        const coord = this.rowColToCoord(row, col);
+                        this.updateStatus(`You attacked ${coord} - Tell opponent: MISS! 💦 Now it's their turn.`);
+                        this.isMyTurn = false;
+                        this.updateTurnDisplay();
+                    }
+                }
+            }
+
+            showAttackModal() {
+                const attackModal = document.getElementById('attackModal');
+                if (attackModal) attackModal.style.display = 'block';
+                
+                const enemyAttackInput = document.getElementById('enemyAttackInput');
+                if (enemyAttackInput) {
+                    enemyAttackInput.value = '';
+                    enemyAttackInput.focus();
+                }
+            }
+
+            closeAttackModal() {
+                const attackModal = document.getElementById('attackModal');
+                if (attackModal) attackModal.style.display = 'none';
+            }
+
+            processEnemyAttack() {
+                const coord = document.getElementById('enemyAttackInput').value.trim().toUpperCase();
+                const pos = this.coordToRowCol(coord);
+                
+                if (!pos) {
+                    alert('Invalid coordinates! Use format like A5, B3, etc.');
+                    return;
+                }
+
+                const isHit = this.player1Board[pos.row][pos.col] === 1;
+                const attackResult = { row: pos.row, col: pos.col, hit: isHit, coord: coord };
+                this.player2Hits.push(attackResult);
+                
+                const result = isHit ? 'HIT! 💥' : 'MISS 💦';
+                
+                // Check if ship is sunk
+                if (isHit) {
+                    const sunkShip = this.checkIfShipSunk(pos.row, pos.col, this.player1Ships, this.player2Hits);
+                    if (sunkShip) {
+                        this.updateStatus(`Enemy attacked ${coord} - ${result} Your ${sunkShip} was SUNK! 💀`);
+                        
+                        // Check if all ships sunk (game over)
+                        if (this.checkVictory(this.player1Ships, this.player2Hits)) {
+                            this.gamePhase = 'gameover';
+                            this.updateGamePhase();
+                            this.updateStatus('💀 You lost! All your ships have been sunk! 💀');
+                            this.closeAttackModal();
+                            return;
+                        }
+                    } else {
+                        this.updateStatus(`Enemy attacked ${coord} - ${result} Tell them: "Hit! Take another shot!"`);
+                    }
+                    // Enemy keeps turn on hit
+                } else {
+                    this.updateStatus(`Enemy attacked ${coord} - ${result} Tell them: "Miss! Now it's your turn!"`);
+                    this.isMyTurn = true;
+                    this.updateTurnDisplay();
+                }
+
+                this.updatePlayerGrid();
+                this.closeAttackModal();
+            }
+
+            coordToRowCol(coord) {
+                if (!coord || coord.length < 2) return null;
+                
+                const letter = coord.charAt(0).toUpperCase();
+                const number = parseInt(coord.slice(1));
+                
+                if (letter < 'A' || letter > 'J' || number < 1 || number > 10) {
+                    return null;
+                }
+                
+                return {
+                    row: number - 1,
+                    col: letter.charCodeAt(0) - 'A'.charCodeAt(0)
+                };
+            }
+
+            rowColToCoord(row, col) {
+                const letter = String.fromCharCode('A'.charCodeAt(0) + col);
+                return letter + (row + 1);
+            }
+
+            checkIfShipSunk(row, col, ships, hits) {
+                for (const [shipName, shipCells] of Object.entries(ships)) {
+                    if (shipCells && shipCells.some(([r, c]) => r === row && c === col)) {
+                        // Check if all cells of this ship are hit
+                        if (shipCells.every(([r, c]) => 
+                            hits.some(hit => hit.row === r && hit.col === c && hit.hit)
+                        )) {
+                            return shipName;
+                        }
+                        break;
+                    }
+                }
+                return null;
+            }
+
+            markShipAsSunk(shipName, ships) {
+                const shipCells = ships[shipName];
+                
+                shipCells.forEach(([row, col]) => {
+                    const cell = document.querySelector(`#enemyGrid .cell[data-row="${row}"][data-col="${col}"]`);
+                    if (cell) {
+                        cell.classList.remove('hit');
+                        cell.classList.add('sunk');
+                        cell.textContent = '💀';
+                    }
+                });
+            }
+
+            checkVictory(ships, hits) {
+                const totalShipCells = Object.values(ships).reduce((total, cells) => {
+                    return total + (cells ? cells.length : 0);
+                }, 0);
+                const hitCells = hits.filter(hit => hit.hit).length;
+                return hitCells === totalShipCells;
+            }
+
+            switchPlayer() {
+                if (this.gameMode === 'local') {
+                    this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+                    this.updateGamePhase();
+                    this.updateStatus(`Player ${this.currentPlayer}: Click on the enemy grid to attack!`);
+                    
+                    // Update board visibility for current player
+                    this.updateBoardForCurrentPlayer();
+                }
+            }
+
+            updateBoardForCurrentPlayer() {
+                const playerBoard = this.currentPlayer === 1 ? this.player1Board : this.player2Board;
+                const cells = document.querySelectorAll('#playerGrid .cell');
+                
+                cells.forEach(cell => {
+                    const row = parseInt(cell.dataset.row);
+                    const col = parseInt(cell.dataset.col);
+                    
+                    cell.className = 'cell';
+                    if (playerBoard[row][col] === 1) {
+                        cell.classList.add('ship');
+                    }
+                });
+                
+                // Clear enemy grid for new player
+                document.querySelectorAll('#enemyGrid .cell').forEach(cell => {
+                    cell.className = 'cell';
+                    cell.textContent = '';
+                });
+                
+                // Show hits for current player
+                const hits = this.currentPlayer === 1 ? this.player1Hits : this.player2Hits;
+                hits.forEach(hit => {
+                    const cell = document.querySelector(`#enemyGrid .cell[data-row="${hit.row}"][data-col="${hit.col}"]`);
+                    if (cell) {
+                        const enemyBoard = this.currentPlayer === 1 ? this.player2Board : this.player1Board;
+                        if (enemyBoard[hit.row][hit.col] === 1) {
+                            cell.classList.add('hit');
+                            cell.textContent = '💥';
+                        } else {
+                            cell.classList.add('miss');
+                            cell.textContent = '💦';
+                        }
+                    }
+                });
+            }
+
+            updateTurnDisplay() {
+                const turnIndicator = document.getElementById('turnIndicator');
+                if (!turnIndicator) return;
+                
+                if (this.gameMode === 'local') {
+                    turnIndicator.style.display = 'none';
+                    return;
+                }
+                
+                if (this.gamePhase !== 'battle') {
+                    turnIndicator.style.display = 'none';
+                    return;
+                }
+                
+                turnIndicator.style.display = 'block';
+                if (this.isMyTurn) {
+                    turnIndicator.className = 'turn-indicator my-turn';
+                    turnIndicator.textContent = '🎯 Your turn - Click on enemy waters to attack!';
+                } else {
+                    turnIndicator.className = 'turn-indicator their-turn';
+                    turnIndicator.textContent = '⏳ Opponent\'s turn - Wait for their attack...';
+                }
+            }
+
+            updateGamePhase() {
+                const phaseElement = document.getElementById('gamePhase');
+                if (!phaseElement) return;
+                
+                if (this.gamePhase === 'placement') {
+                    if (this.gameMode === 'local') {
+                        phaseElement.textContent = `Player ${this.currentPlayer} - Place your ships!`;
+                    } else {
+                        phaseElement.textContent = `Place your ships! Room: ${this.gameCode}`;
+                    }
+                } else if (this.gamePhase === 'battle') {
+                    if (this.gameMode === 'local') {
+                        phaseElement.textContent = `Battle Phase - Player ${this.currentPlayer}'s Turn`;
+                    } else {
+                        phaseElement.textContent = `Battle Phase - Room: ${this.gameCode}`;
+                    }
+                } else if (this.gamePhase === 'gameover') {
+                    if (this.gameMode === 'local') {
+                        phaseElement.textContent = `Game Over - Player ${this.currentPlayer} Wins! 🎉`;
+                    } else {
+                        phaseElement.textContent = `Game Over! 🎉`;
+                    }
+                }
+            }
+
+            updateStatus(message) {
+                const statusElement = document.getElementById('status');
+                if (statusElement) {
+                    statusElement.textContent = message;
+                }
+            }
+
+            newGame() {
+                // Reset everything
+                this.gamePhase = 'placement';
+                this.currentPlayer = 1;
+                this.isMyTurn = true;
+                this.player1Board = this.createBoard();
+                this.player2Board = this.createBoard();
+                this.player1Ships = {};
+                this.player2Ships = {};
+                this.player1Hits = [];
+                this.player2Hits = [];
+                
+                // Reset UI
+                const setupScreen = document.getElementById('setupScreen');
+                if (setupScreen) setupScreen.style.display = 'block';
+                
+                const gameScreen = document.getElementById('gameScreen');
+                if (gameScreen) gameScreen.style.display = 'none';
+                
+                const shipSelection = document.getElementById('shipSelection');
+                if (shipSelection) shipSelection.style.display = 'flex';
+                
+                const placementControls = document.getElementById('placementControls');
+                if (placementControls) placementControls.style.display = 'block';
+                
+                const battleControls = document.getElementById('battleControls');
+                if (battleControls) battleControls.style.display = 'none';
+                
+                const enemySection = document.getElementById('enemySection');
+                if (enemySection) enemySection.style.display = 'none';
+                
+                const turnIndicator = document.getElementById('turnIndicator');
+                if (turnIndicator) turnIndicator.style.display = 'none';
+                
+                const readyBtn = document.getElementById('readyBtn');
+                if (readyBtn) readyBtn.style.display = 'none';
+                
+                this.resetShips();
+                this.createGrid('playerGrid');
+                this.createGrid('enemyGrid');
+            }
+        }
+
+        // Define global functions immediately
+        function createGame() {
+            console.log('createGame called');
+            if (!window.game) {
+                console.log('Creating new game instance');
+                window.game = new BattleshipGame();
+            }
+            console.log('Calling game.createGame()');
+            window.game.createGame();
+        }<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -342,6 +1124,9 @@
                 window.game.newGame();
             }
         }
+    </script>
+</head>
+<body>
     </script>
 </head>
 <body>
